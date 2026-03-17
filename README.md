@@ -15,29 +15,29 @@
 
 ---
 
-## 教程
-
-📖 **完整安装与配置教程**：[让 QQ 接入 openclaw！让你的助手掌管千人大群](https://kirigaya.cn/blog/article?seq=368)
-
-## 功能
-
-- ✅ 私聊：所有消息 AI 都会回复
-- ✅ 群聊：仅当用户 @ 机器人时回复（可配置）
-- ✅ 自动获取上下文
-- ✅ 新成员入群欢迎
-- ✅ 自动合并转发长消息
-- ✅ normal 模式准流式回复：按短时间窗口聚合后增量发送，避免等到最后一次性吐出
-- ✅ **长消息生成图片**：超过阈值可将 Markdown 渲染为图片发送（可选主题：default / dust / custom 自定义 CSS）
-- ✅ 支持文件，图像读取/上传
-- ✅ 支持白名单系统
-- ✅ 通过 `openclaw message send` CLI 发送（无 Agent 工具，降低 token 消耗）
-
 ## 安装
 
 ```bash
 openclaw plugins install @kirigaya/openclaw-onebot
 openclaw onebot setup
 ```
+
+## 教程
+
+[让 QQ 接入 openclaw！让你的助手掌管千人大群](https://kirigaya.cn/blog/article?seq=368)
+
+<img src="./figure/arch.png" />
+
+
+## 功能
+
+- ✅ 私聊：所有消息 AI 都会回复
+- ✅ 触发：支持 @触发 和基于关键字的触发
+- ✅ 自动获取上下文
+- ✅ 自定义新成员入群欢迎触发器
+- ✅ 自动合并转发长消息：超过阈值可渲染为图片发送或者合并发送
+- ✅ 支持文件，图像读取/发送
+- ✅ 支持黑白名单系统
 
 ## 安装 onebot 服务端
 
@@ -48,8 +48,10 @@ openclaw onebot setup
 
 | 类型 | 说明 |
 |------|------|
-| `forward-websocket` | 插件主动连接 OneBot（go-cqhttp、Lagrange.Core 正向 WS） |
+| `forward-websocket` | 插件主动连接 OneBot（go-cqhttp、Lagrange.Core 正向 WS/WSS） |
 | `backward-websocket` | 插件作为服务端，OneBot 连接过来 |
+
+> 💡 **提示**：支持 `ws://` 和 `wss://`（WebSocket Secure）协议，可填写完整 URL 如 `wss://ws-napcatqq.example.com`
 
 ### 环境变量
 
@@ -66,7 +68,31 @@ openclaw onebot setup
 
 1. 安装并配置
 2. 重启 Gateway：`openclaw gateway restart`
-3. 在 QQ 私聊或群聊中发消息（群聊需 @ 机器人）
+3. 在 QQ 私聊或群聊中发消息（群聊需 @ 机器人，或配置关键字触发）
+
+## 关键字触发回复
+
+除了 @ 机器人外，还可以配置关键字检测，当群消息中包含指定关键字时自动触发回复（无需 @）。
+
+```json
+{
+  "channels": {
+    "onebot": {
+      "keywordTriggers": {
+        "enabled": true,
+        "keywords": ["AI", "助手", "帮我问"],
+        "caseSensitive": false
+      }
+    }
+  }
+}
+```
+
+| 配置项 | 说明 |
+|--------|------|
+| `enabled` | 是否启用关键字触发 |
+| `keywords` | 关键字列表，包含任一关键字即触发 |
+| `caseSensitive` | 是否区分大小写 |
 
 ## 长消息处理与 OG 图片渲染
 
@@ -190,7 +216,7 @@ openclaw message send --channel onebot --target group:987654321 --media "file://
 }
 ```
 
-### 黑名单
+## 黑名单
 
 在群里有时候有些人需要被屏蔽，不管他怎么 @ 还是怎么，都屏蔽他的消息不触发。
 
@@ -204,7 +230,7 @@ openclaw message send --channel onebot --target group:987654321 --media "file://
 }
 ```
 
-注意：白名单优先级高于黑名单。如果同时设置了白名单和黑名单，只有白名单内的用户才能触发，且黑名单内的白名单用户也会被屏蔽。
+**注意**：白名单优先级高于黑名单。如果同时设置了白名单和黑名单，只有白名单内的用户才能触发，且黑名单内的白名单用户也会被屏蔽。
 
 ## 新人入群触发器
 
@@ -263,6 +289,12 @@ npm run test:render-og-image -- "C:/path/to/your-theme.css"
 - [go-cqhttp](https://docs.go-cqhttp.org/)
 - [Lagrange.Core](https://github.com/LSTM-Kirigaya/Lagrange.Core)
 - [NapCat](https://github.com/NapNeko/NapCatQQ)
+
+## 联系
+
+zhelonghuang@qq.com
+
+要是我不回你，可以选择进我的QQ群。782833642
 
 ## License
 
