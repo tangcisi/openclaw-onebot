@@ -227,7 +227,11 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
 
     const envelopeOptions = runtime.channel.reply?.resolveEnvelopeFormatOptions?.(cfg) ?? {};
     const chatType = isGroup ? "group" : "direct";
-    const fromLabel = String(userId);
+    // 优先使用群名片(card)，其次是昵称(nickname)，都没有则为空串
+    const senderNickname = (isGroup ? msg.sender?.card?.trim() : undefined)
+        || msg.sender?.nickname?.trim()
+        || "";
+    const fromLabel = senderNickname || String(userId);
 
     // 添加日志：打印插件接收到的原始消息内容
     api.logger?.info?.(`[onebot] received message from user ${userId}: "${messageText}"`);

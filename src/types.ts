@@ -12,7 +12,11 @@ export interface OneBotMessage {
   raw_message?: string;
   self_id?: number;
   time?: number;
-  notice_type?: string;
+  sender?: {
+    user_id?: number;
+    nickname?: string;
+    card?: string;
+  };
   [key: string]: unknown;
 }
 
