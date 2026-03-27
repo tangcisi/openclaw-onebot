@@ -123,7 +123,7 @@ export function listAccountIds(apiOrCfg: any): string[] {
   return [];
 }
 
-/** 
+/**
  * 触发关键词列表，当 requireMention 为 false 时生效
  * 消息包含这些关键词时触发机器人响应
  */
@@ -144,7 +144,17 @@ export function getTriggerMode(cfg: any): "prefix" | "contains" {
   return "prefix"; // 默认为前缀匹配
 }
 
-/** 是否在用户不在白名单时回复“权限不足”，默认 true */
+/**
+ * 随机回复概率（0-1），当消息既未被 @ 也未匹配关键词时，按此概率随机触发回复
+ * 默认 0（不启用），设为 0.1 表示 10% 概率随机回复
+ */
+export function getRandomReplyProbability(cfg: any): number {
+  const v = cfg?.channels?.onebot?.randomReplyProbability;
+  if (typeof v !== "number" || !Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
+/** 是否在用户不在白名单时回复"权限不足"，默认 true */
 export function getReplyWhenWhitelistDenied(cfg: any): boolean {
   const v = cfg?.channels?.onebot?.replyWhenWhitelistDenied;
   return v === undefined ? true : Boolean(v);

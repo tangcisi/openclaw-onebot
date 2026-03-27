@@ -21,6 +21,7 @@ import {
     getNormalModeFlushChars,
     getTriggerKeywords,
     getTriggerMode,
+    getRandomReplyProbability,
     getReplyWhenWhitelistDenied,
 } from "../config.js";
 import { markdownToPlain, collapseDoubleNewlines } from "../markdown.js";
@@ -139,10 +140,11 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
     const cfg = api.config;
     const requireMention = (cfg?.channels?.onebot as any)?.requireMention ?? true;
 
-    // 触发检查逻辑：@提及 和 关键词可同时生效，任一命中即触发
+    // 触发检查逻辑：@提及 和 关键词可同时生效，任一命中即触发；均未命中时可按概率随机回复
     if (isGroup) {
         const isAtMentioned = isMentioned(msg, selfId);
         const triggerKeywords = getTriggerKeywords(cfg);
+        const randomReplyProb = getRandomReplyProbability(cfg);
 
         if (triggerKeywords.length > 0) {
             // 配置了关键词：@ 或关键词任一匹配即触发
@@ -151,16 +153,27 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
             const keywordMatched = checkTriggerKeyword(textFromMsg, triggerKeywords, triggerMode);
 
             if (!isAtMentioned && !keywordMatched) {
-                api.logger?.info?.(`[onebot] ignoring group message: no @mention and no keyword match`);
-                return;
+                // 既没 @ 也没关键词命中，检查随机回复概率
+                if (randomReplyProb > 0 && Math.random() < randomReplyProb) {
+                    api.logger?.info?.(`[onebot] triggered by random reply (probability: ${randomReplyProb})`);
+                } else {
+                    api.logger?.info?.(`[onebot] ignoring group message: no @mention and no keyword match`);
+                    return;
+                }
+            } else {
+                if (isAtMentioned) api.logger?.info?.(`[onebot] triggered by @mention`);
+                if (keywordMatched) api.logger?.info?.(`[onebot] triggered by keyword match`);
             }
-            if (isAtMentioned) api.logger?.info?.(`[onebot] triggered by @mention`);
-            if (keywordMatched) api.logger?.info?.(`[onebot] triggered by keyword match`);
         } else if (requireMention) {
             // 没配关键词 + requireMention: true → 必须 @
             if (!isAtMentioned) {
-                api.logger?.info?.(`[onebot] ignoring group message without @mention`);
-                return;
+                // 没被 @，检查随机回复概率
+                if (randomReplyProb > 0 && Math.random() < randomReplyProb) {
+                    api.logger?.info?.(`[onebot] triggered by random reply (probability: ${randomReplyProb})`);
+                } else {
+                    api.logger?.info?.(`[onebot] ignoring group message without @mention`);
+                    return;
+                }
             }
         }
         // 没配关键词 + requireMention: false → 所有消息都响应（保持原有行为）
