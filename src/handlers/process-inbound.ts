@@ -39,6 +39,7 @@ import {
 import { setActiveReplyTarget, clearActiveReplyTarget, setActiveReplySessionId, setForwardSuppressDelivery, setActiveReplySelfId } from "../reply-context.js";
 import { loadPluginSdk, getSdk } from "../sdk.js";
 import { handleGroupIncrease } from "./group-increase.js";
+import { initDebugLog, debugLog } from "../debug-log.js";
 
 const DEFAULT_HISTORY_LIMIT = 20;
 export const sessionHistories = new Map<string, Array<{ sender: string; body: string; timestamp: number; messageId: string }>>();
@@ -97,20 +98,26 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
     await loadPluginSdk();
     const { buildPendingHistoryContextFromMap, recordPendingHistoryEntry, clearHistoryEntriesIfEnabled } = getSdk();
 
+    // 初始化文件 debug 日志（幂等，只在首次生效）
+    initDebugLog(api?.config);
+
     const runtime = api.runtime;
     if (!runtime?.channel?.reply?.dispatchReplyWithBufferedBlockDispatcher) {
         api.logger?.warn?.("[onebot] runtime.channel.reply not available");
+        debugLog.warn("runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher not available — message dropped");
         return;
     }
 
     const config = getOneBotConfig(api);
     if (!config) {
         api.logger?.warn?.("[onebot] not configured");
+        debugLog.warn("getOneBotConfig returned null — message dropped");
         return;
     }
 
     const selfId = msg.self_id ?? 0;
     if (msg.user_id != null && Number(msg.user_id) === Number(selfId)) {
+        debugLog.info(`self-message detected (user_id=${msg.user_id} === self_id=${selfId}) — skipped`);
         return;
     }
 
@@ -133,12 +140,15 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
     }
     if (!messageText?.trim()) {
         api.logger?.info?.(`[onebot] ignoring empty message`);
+        debugLog.info(`empty message from user=${msg.user_id} type=${msg.message_type} — skipped`);
         return;
     }
 
     const isGroup = msg.message_type === "group";
     const cfg = api.config;
     const requireMention = (cfg?.channels?.onebot as any)?.requireMention ?? true;
+
+    debugLog.lazy("INFO", () => `incoming: user=${msg.user_id} group=${msg.group_id ?? "N/A"} type=${msg.message_type} selfId=${selfId} text="${messageText.slice(0, 80)}"`);
 
     // 触发检查逻辑：@提及 和 关键词可同时生效，任一命中即触发；均未命中时可按概率随机回复
     if (isGroup) {
@@ -200,6 +210,7 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
     // 白名单检查
     const whitelist = getWhitelistUserIds(cfg);
     if (whitelist.length > 0 && !whitelist.includes(Number(userId))) {
+        debugLog.info(`user ${userId} not in whitelist [${whitelist.join(",")}] — denied`);
         if (getReplyWhenWhitelistDenied(cfg)) {
             const denyMsg = "权限不足，请向管理员申请权限";
             const getConfig = () => getOneBotConfig(api);
@@ -216,6 +227,7 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
     const blacklist = getBlacklistUserIds(cfg);
     if (blacklist.length > 0 && blacklist.includes(Number(userId))) {
         api.logger?.info?.(`[onebot] user ${userId} is in blacklist, ignored`);
+        debugLog.info(`user ${userId} in blacklist — ignored`);
         return;
     }
     const groupId = msg.group_id;
@@ -419,12 +431,36 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
         mediaUrl: string | undefined
     ) => {
         if (text) {
-            if (effectiveIsGroup && effectiveGroupId) await sendGroupMsg(effectiveGroupId, text, getConfig);
-            else if (uid) await sendPrivateMsg(uid, text, getConfig);
+            try {
+                if (effectiveIsGroup && effectiveGroupId) {
+                    await sendGroupMsg(effectiveGroupId, text, getConfig);
+                    debugLog.lazy("INFO", () => `sendGroupMsg OK: group=${effectiveGroupId} len=${text.length}`);
+                } else if (uid) {
+                    await sendPrivateMsg(uid, text, getConfig);
+                    debugLog.lazy("INFO", () => `sendPrivateMsg OK: user=${uid} len=${text.length}`);
+                } else {
+                    debugLog.warn(`doSendChunk: text present but no valid target (isGroup=${effectiveIsGroup} groupId=${effectiveGroupId} uid=${uid}) — message lost!`);
+                }
+            } catch (e: any) {
+                debugLog.error(`doSendChunk text failed: ${e?.message ?? e}`);
+                throw e;
+            }
         }
         if (mediaUrl) {
-            if (effectiveIsGroup && effectiveGroupId) await sendGroupImage(effectiveGroupId, mediaUrl, api.logger, getConfig);
-            else if (uid) await sendPrivateImage(uid, mediaUrl, api.logger, getConfig);
+            try {
+                if (effectiveIsGroup && effectiveGroupId) {
+                    await sendGroupImage(effectiveGroupId, mediaUrl, api.logger, getConfig);
+                    debugLog.lazy("INFO", () => `sendGroupImage OK: group=${effectiveGroupId}`);
+                } else if (uid) {
+                    await sendPrivateImage(uid, mediaUrl, api.logger, getConfig);
+                    debugLog.lazy("INFO", () => `sendPrivateImage OK: user=${uid}`);
+                } else {
+                    debugLog.warn(`doSendChunk: mediaUrl present but no valid target — media lost!`);
+                }
+            } catch (e: any) {
+                debugLog.error(`doSendChunk media failed: ${e?.message ?? e}`);
+                throw e;
+            }
         }
     };
 
@@ -502,7 +538,10 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
                         receivedFinal = true;
                     }
 
-                    if ((!trimmed || trimmed === "NO_REPLY" || trimmed.endsWith("NO_REPLY")) && !mediaUrl) return;
+                    if ((!trimmed || trimmed === "NO_REPLY" || trimmed.endsWith("NO_REPLY")) && !mediaUrl) {
+                        debugLog.lazy("INFO", () => `deliver: suppressed (NO_REPLY or empty), kind=${info.kind}, raw="${replyText.slice(0, 60)}"`);
+                        return;
+                    }
 
                     const { userId: uid, groupId: gid, isGroup: ig } = (ctxPayload as any)._onebot || {};
                     const sessionKey = String((ctxPayload as any).SessionKey ?? sessionId);
@@ -676,6 +715,13 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
                                         if (nodes.length > 0) {
                                             if (effectiveIsGroup && effectiveGroupId) await sendGroupForwardMsg(effectiveGroupId, nodes, getConfig);
                                             else if (uid) await sendPrivateForwardMsg(uid, nodes, getConfig);
+                                        } else {
+                                            // forward 模式下所有 self-send 都失败，nodes 为空，降级逐条发送
+                                            debugLog.warn(`forward: all self-sends failed, nodes empty (${deliveredChunks.length} chunks) — falling back to direct send`);
+                                            setForwardSuppressDelivery(false);
+                                            for (const c of deliveredChunks) {
+                                                if (c.text || c.mediaUrl) await doSendChunk(effectiveIsGroup, effectiveGroupId, uid, c.text ?? "", c.mediaUrl);
+                                            }
                                         }
                                     } catch (e: any) {
                                         api.logger?.error?.(`[onebot] forward failed: ${e?.message}`);
@@ -721,20 +767,24 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
                         }
                     } catch (e: any) {
                         traceLog.error(`deliver failed: ${e?.message}`);
+                        debugLog.error(`deliver exception: kind=${info.kind} err=${e?.message ?? e}`);
                     }
                 },
                 onError: async (err: any, info: any) => {
                     traceLog.error(`${info?.kind} reply failed: ${err}`);
+                    debugLog.error(`onError: kind=${info?.kind} err=${err}`);
                     await clearEmojiReaction();
                 },
             },
             replyOptions: { disableBlockStreaming: longMessageMode !== "normal" },
         });
         traceLog.info(`dispatchReplyWithBufferedBlockDispatcher returned successfully.`);
+        debugLog.lazy("INFO", () => `dispatch complete: session=${sessionId} receivedFinal=${receivedFinal} chunks=${deliveredChunks.length}`);
     } catch (err: any) {
         await clearEmojiReaction();
         // 异常时清空缓冲，避免 finally 补发半截正文后再发错误消息
         traceLog.error(`dispatch catch block: err=${err?.message}, receivedFinal=${receivedFinal}, chunkIndex=${chunkIndex}`);
+        debugLog.error(`dispatch exception: err=${err?.message ?? err} receivedFinal=${receivedFinal} chunks=${deliveredChunks.length} session=${sessionId}`);
         normalModeBufferedText = "";
         normalModeBufferedRawText = "";
         try {
@@ -744,6 +794,11 @@ export async function processInboundMessage(api: any, msg: OneBotMessage): Promi
         } catch (_) { }
     } finally {
         traceLog.info(`dispatch finally block: receivedFinal=${receivedFinal}, hasBuffered=${hasBufferedNormalModeText()}, bufferLen=${normalModeBufferedText.length}, hasTimer=${!!normalModeFlushTimer}, chunks=${deliveredChunks.length}`);
+        if (!receivedFinal && deliveredChunks.length === 0) {
+            debugLog.warn(`dispatch ended without final and 0 chunks — agent may have produced no output. session=${sessionId}`);
+        } else if (!receivedFinal) {
+            debugLog.warn(`dispatch ended without final but has ${deliveredChunks.length} chunks — possible timeout. session=${sessionId}`);
+        }
         // 补发缓冲池中残留的文本（引擎未发送 final 帧时会走到这里）
         if (hasBufferedNormalModeText()) {
             try {
