@@ -324,6 +324,37 @@ npm run test:render-og-image -- "C:/path/to/your-theme.css"
 - [Lagrange.Core](https://github.com/LSTM-Kirigaya/Lagrange.Core)
 - [NapCat](https://github.com/NapNeko/NapCatQQ)
 
+## Debug 文件日志
+
+当群聊触发了但没有回复时，可以开启文件日志排查问题。日志独立于 Gateway 控制台输出，直接写入文件：
+
+```json
+{
+  "channels": {
+    "onebot": {
+      "debugLog": true,
+      "debugLogPath": "~/.openclaw/logs/onebot-debug.log",
+      "debugLogMaxSizeMB": 10
+    }
+  }
+}
+```
+
+| 配置项 | 说明 |
+|--------|------|
+| `debugLog` | 是否启用文件日志，默认 `false` |
+| `debugLogPath` | 日志文件路径，默认 `~/.openclaw/logs/onebot-debug.log` |
+| `debugLogMaxSizeMB` | 单文件最大 MB，超出后轮转为 `.log.1`，默认 `10` |
+
+日志覆盖的关键路径：
+- 消息接收与触发检查（@提及 / 关键词 / 跳过原因）
+- 白名单 / 黑名单拦截
+- 自消息检测（`user_id === self_id`）
+- Agent 回复 NO_REPLY 导致的静默丢弃
+- 每条消息的发送结果（成功 / 失败 / 无有效目标）
+- dispatch 异常与超时（未收到 final 帧）
+- forward 模式合并转发降级
+
 ## 联系
 
 zhelonghuang@qq.com
